@@ -6,7 +6,7 @@ import authRoutes from './routes/auth.js';
 import docRoutes from "./routes/documents.js";
 
 dotenv.config();
-console.log("Environment Variables Loaded:", process.env);
+//console.log("Environment Variables Loaded:", process.env);
 
 const app = express();
 app.use(cors());

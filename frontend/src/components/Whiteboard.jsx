@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import API from '../api';
+import { useNavigate, useParams } from 'react-router-dom';
 
 const Whiteboard = () => {
   const canvasRef = useRef(null);
@@ -7,27 +9,78 @@ const Whiteboard = () => {
   const [mode, setMode] = useState("text"); // 'text' or 'draw'
   const [penColor, setPenColor] = useState("black");
   const [penSize, setPenSize] = useState(2);
+  const [title, setTitle] = useState("Untitled Document");
+  const [isSaving, setIsSaving] = useState(false);
+  const editableRef = useRef(null);
+  const navigate = useNavigate();
+  const { id } = useParams(); // Get document ID from URL if editing existing document
   
-  // New states for text styling
+  // Existing text styling states
   const [fontSize, setFontSize] = useState("16px");
   const [fontFamily, setFontFamily] = useState("Arial");
   const [fontWeight, setFontWeight] = useState("normal");
   const [fontStyle, setFontStyle] = useState("normal");
   const [textDecoration, setTextDecoration] = useState("none");
 
+  // Fetch existing document if ID is provided
   useEffect(() => {
-    const canvas = canvasRef.current;
-    canvas.width = window.innerWidth; // Full screen width
-    canvas.height = window.innerHeight; // Full screen height
+    const setupCanvasAndLoad = async() => {
+      const canvas = canvasRef.current;
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
 
-    const ctx = canvas.getContext("2d");
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.strokeStyle = penColor;
-    ctx.lineWidth = penSize;
-    ctxRef.current = ctx;
-  }, [penColor, penSize]);
+      const ctx = canvas.getContext("2d");
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.strokeStyle = penColor;
+      ctx.lineWidth = penSize;
+      ctxRef.current = ctx;
+    };
 
+    
+
+    // Load existing document if we have an ID
+    if (id) {
+      const fetchDocument = async () => {
+        try {
+          const response = await API.get(`/api/documents/${id}`);
+          const doc = response.data;
+          console.log("Loaded document:", doc);
+          console.log("Document content:", doc.content);
+          
+          setTitle(doc.title);
+          
+          // Parse the stored content
+          if (doc.content) {
+            const Content = JSON.parse(doc.content);
+            const parsedContent = JSON.parse(Content)
+            // Set text content
+            if (parsedContent.text && editableRef.current) {
+              editableRef.current.innerHTML = parsedContent.text || "";
+            }
+            
+            // Load canvas content if available
+            if (parsedContent.canvas && canvasRef.current) {
+              const img = new Image();
+              img.onload = () => {
+                if (ctxRef.current){
+                ctxRef.current.drawImage(img, 0, 0);
+                }
+              };
+              img.src = parsedContent.canvas;
+            }
+          }
+        } catch (error) {
+          console.error("Error loading document:", error);
+          alert("Could not load the document. Please try again.");
+        }
+      };
+      setupCanvasAndLoad();
+      fetchDocument();
+    }
+  }, [id, penColor, penSize]);
+
+  // Existing drawing functions
   const startDrawing = (e) => {
     if (mode !== "draw") return;
     setIsDrawing(true);
@@ -48,18 +101,15 @@ const Whiteboard = () => {
     setIsDrawing(false);
   };
 
-  // Apply font size to selected text
+  // Existing text styling functions
   const applyFontSize = (size) => {
     document.execCommand('fontSize', false, size);
   };
 
-  // Apply font family to selected text
   const applyFontFamily = (family) => {
     document.execCommand("fontName", false, family);
   };
   
-
-  // Helper function to execute text style changes
   const applyTextStyle = (command) => {
     if (command === "bold") {
       document.execCommand("bold");
@@ -70,8 +120,87 @@ const Whiteboard = () => {
     }
   };
 
+  // Save document function
+  const saveDocument = async () => {
+    setIsSaving(true);
+    
+    try {
+      // Get text content from the editable div
+      const textContent = editableRef.current.innerHTML;
+      
+      // Get canvas content as data URL (for drawing)
+      const canvasContent = canvasRef.current.toDataURL();
+      
+      // Combine both for storage
+      const documentContent = {
+        text: textContent,
+        canvas: canvasContent
+      };
+      
+      const payload = {
+        title: title,
+        content: JSON.stringify(documentContent)
+      };
+      
+      // If id exists, update existing document, otherwise create new one
+      if (id) {
+        await API.put(`/api/documents/${id}`, payload);
+        alert('Document updated successfully!');
+      } else {
+        await API.post('/api/documents', payload);
+        alert('Document created successfully!');
+      }
+      
+      navigate('/welcome');
+    } catch (err) {
+      console.error('Error saving document:', err);
+      alert('Failed to save document. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   return (
     <div>
+      {/* Title and Save Bar */}
+      <div style={{ 
+        padding: "10px", 
+        background: "#2c3e50", 
+        color: "white",
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center"
+      }}>
+        <input 
+          type="text" 
+          value={title} 
+          onChange={(e) => setTitle(e.target.value)}
+          style={{
+            fontSize: "18px",
+            padding: "5px 10px",
+            borderRadius: "4px",
+            border: "none",
+            width: "300px"
+          }}
+          placeholder="Document Title"
+        />
+        <button 
+          onClick={saveDocument}
+          disabled={isSaving}
+          style={{
+            backgroundColor: "#27ae60",
+            color: "white",
+            padding: "8px 15px",
+            borderRadius: "4px",
+            border: "none",
+            cursor: "pointer",
+            fontWeight: "bold"
+          }}
+        >
+          {isSaving ? "Saving..." : "Save Document"}
+        </button>
+      </div>
+
       {/* Toolbar */}
       <div style={{ padding: "13px", background: "#eee" }}>
         <label>Mode: </label>
@@ -80,6 +209,7 @@ const Whiteboard = () => {
           <option value="draw">Draw</option>
         </select>
 
+        {/* Existing toolbar content */}
         {mode === "draw" && (
           <>
             <label style={{ marginLeft: "10px" }}>Color: </label>
@@ -130,18 +260,14 @@ const Whiteboard = () => {
               <option value="Georgia">Georgia</option>
               <option value="Tahoma">Tahoma</option>
             </select>
-
-
             
             <button onClick={() => applyTextStyle("bold")} style={{ marginLeft: "12px", padding: "8px 12px" }}>
               {fontWeight === "normal" ? "Bold" : "Normal"}
             </button>
-
             
             <button onClick={() => applyTextStyle("italic")} style={{ marginLeft: "12px", padding: "8px 12px" }}>
               {fontStyle === "normal" ? "Italic" : "Normal"}
             </button>
-
             
             <button onClick={() => applyTextStyle("underline")} style={{ marginLeft: "12px", padding: "8px 12px" }}>
               {textDecoration === "none" ? "Underline" : "Normal"}
@@ -151,9 +277,10 @@ const Whiteboard = () => {
       </div>
 
       {/* Word-like container */}
-      <div style={{ position: "relative", width: "100%", height: "100vh" }}>
+      <div style={{ position: "relative", width: "100%", height: "calc(100vh - 115px)" }}>
         {/* Typing Area */}
         <div
+          ref={editableRef}
           contentEditable
           suppressContentEditableWarning
           style={{
@@ -165,10 +292,10 @@ const Whiteboard = () => {
             lineHeight: "1.6",
             zIndex: 1,
             position: "relative",
-            overflow: "auto", // Allow scrolling only for typing content
-            boxSizing: "border-box", // To include padding within the width and height
-            whiteSpace: "pre-wrap", // To allow line breaks in the content
-            wordWrap: "break-word", // To prevent horizontal overflow
+            overflow: "auto",
+            boxSizing: "border-box",
+            whiteSpace: "pre-wrap",
+            wordWrap: "break-word",
           }}
         >
           <p>Start typing here like a Word document...</p>
